@@ -1,0 +1,1 @@
+fig_fontsizes = {"label": 15., "legend": 13., "text": 15., "title": 15., "tick": 15.}

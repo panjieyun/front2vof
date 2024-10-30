@@ -1,0 +1,444 @@
+import numpy as np
+from numpy.linalg import norm
+from mpl_toolkits.mplot3d.art3d import Poly3DCollection
+
+
+#  for plotting purpose
+def set_axis_transparent(ax):
+    # make the panes transparent
+    ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
+    # make the grid lines transparent
+    ax.xaxis._axinfo["grid"]['color'] = (1, 1, 1, 0)
+    ax.yaxis._axinfo["grid"]['color'] = (1, 1, 1, 0)
+    ax.zaxis._axinfo["grid"]['color'] = (1, 1, 1, 0)
+    ax.set_axis_off()
+
+
+def add_axis(ax, xo=(0., 0., 0.), dx=(1.2, 1.2, 1.2), **kwargs):
+    _x = np.zeros(3) + xo[0]
+    _y = np.zeros(3) + xo[1]
+    _z = np.zeros(3) + xo[2]
+    _xo = np.array(xo)
+    _u = np.array([1., 0., 0.]) * dx[0]
+    _v = np.array([0., 1., 0.]) * dx[1]
+    _w = np.array([0., 0., 1.]) * dx[2]
+    _dx = np.vstack([_u, _v, _w]) * 1.05
+    ax.quiver(_x, _y, _z, _u, _v, _w, **kwargs)
+    texts = [r"$\hat{\mathbf{e}}_{x}$", r"$\hat{\mathbf{e}}_{y}$", r"$\hat{\mathbf{e}}_{z}$"]
+
+    ax.text(xo[0] - 0.1, xo[0] - 0.1, xo[0] - 0.1, r"$o$", fontsize=14)
+    for i in range(3):
+        _xt = _xo + _dx[i]
+        ax.text(_xt[0], _xt[1], _xt[2], texts[i], fontsize=14)
+
+
+def get_plane(pv):
+    """ Get the equation of plane on which a polygon is located:
+    m[0]*x + m[1]*y + m[2]*z = m[3]. """
+    _pv = np.array(pv)
+    dp1 = _pv[1] - _pv[0]
+    dp2 = _pv[2] - _pv[1]
+    _m = np.cross(dp1, dp2)
+    _m /= np.linalg.norm(_m)
+    _alpha = np.dot(_m, _pv[0])
+    return np.hstack([_m, _alpha])
+
+
+def get_triangle(xo=(0., 0., 0.), n=(0., 0., 1.), l=2.):
+    """ Generate an equilateral with normal n, side length l and centroid at xo. """
+    sq3 = np.sqrt(3.)
+    _tri = np.array([[sq3 / 3., 0., 0.], [-sq3 / 6., 0.5, 0.], [-sq3 / 6., -0.5, 0.]]) * l
+    _nz = np.array(n)
+    _nz /= norm(_nz)
+
+    if abs(_nz[2]) == 1.:
+        _nx = np.array([1., 0., 0.])
+    else:
+        _nx = np.copy(_nz)
+        _nx[2] = 0.
+        _nx[0], _nx[1] = _nx[1], -_nx[0]
+        _nx /= norm(_nx)
+
+    _ny = np.cross(_nz, _nx)
+
+    m_matrix = np.vstack([_nx, _ny, _nz])
+    _tri_n = np.dot(_tri, m_matrix) + np.array(xo)
+    return _tri_n
+
+
+def plot_polygons(ax, polygons, **kwargs):
+    poly3d = Poly3DCollection(polygons, **kwargs)
+    ax.add_collection3d(poly3d)
+
+
+class Polygon():
+    def __init__(self, pv):
+        self.pv = np.array(pv)
+        _pv = self.pv
+        nv = _pv.shape[0]
+        self.nv = nv
+        self.dn = np.array([1., 0., 0.])
+
+        _xc = np.sum(_pv, axis=0) / nv
+        xcen = []
+        area = []
+        a_max = 0.
+        for i in range(nv):
+            ip = (i + 1) % nv
+            xcen.append((_pv[i] + _pv[ip] + _xc) / 3.)
+            _dn = np.cross(_pv[i] - _xc, _pv[ip] - _xc)
+            _a = np.linalg.norm(_dn)
+            area.append(0.5 * _a)
+            if _a > a_max:
+                a_max = _a
+                self.dn = _dn / _a
+        xcen = np.array(xcen)
+        area = np.array(area)
+        self.area = np.sum(area)
+
+        if nv == 2:
+            print("Cannot construct a polygon with only two vertices.")
+        if self.area == 0.:
+            self.xcen = _xc
+            print("Degenerated polygon with zero area: ", _pv)
+        else:
+            self.xcen = np.sum(xcen * area[:, np.newaxis], axis=0) / self.area
+
+    def plot_polygen(self, ax, **kwargs):
+        poly3d = Poly3DCollection([self.pv], **kwargs)
+        ax.add_collection3d(poly3d)
+
+
+class Cube():
+    def __init__(self, dx=(1., 1., 1.), xo=(0., 0., 0.)):
+        self.dx = np.array(dx)
+        self.xo = np.array(xo)
+        self.pv = None
+        self.xrange = (np.vstack([[0., 0., 0.], self.dx]) + self.xo).T
+        self.polys_cut = []
+        self.flag_cut = []
+        self.triangles_inside = []
+        self.polygons_inside = []
+        self.flag_inside = []
+        self.index_face = [1 << i for i in range(6)]
+
+    def cut_triangle(self, pv, verbose=False):
+        eps = 1.e-12
+        self.pv = np.array(pv)
+        poly = [self.pv[0], self.pv[1], self.pv[2]]
+        flag_face = []  # flag used to identify the face to which the vertex belong
+        self.polys_cut = []
+        self.polys_cut.append(np.array(poly))
+
+        # identify the vertex of the original triangle located on the cube surface
+        for _poly in poly:
+            _flag = 0 # 0 for vertex inside the cube
+            for i_face in range(3):
+                x_min, x_max = self.xrange[i_face, 0], self.xrange[i_face, 1]
+                if np.fabs(_poly[i_face] - x_min) < eps:
+                    _poly[i_face] = x_min
+                    _flag = _flag | self.index_face[2 * i_face]
+                elif np.fabs(_poly[i_face] - x_max) < eps:
+                    _poly[i_face] = x_max
+                    _flag = _flag | self.index_face[2 * i_face + 1]
+            flag_face.append(_flag)
+        self.flag_cut = []
+        self.flag_cut.append(np.array(flag_face))
+
+        # cut the triangle
+        for i_face in range(3):
+            npoly = len(poly)
+            x_min, x_max = self.xrange[i_face, 0], self.xrange[i_face, 1]
+            flag_min, flag_max = self.index_face[2 * i_face], self.index_face[2 * i_face + 1]
+
+            # store the information of points which should be add the polygon
+            i_ins = []
+            x_ins = []
+            flag_ins = []
+            rm_ind = []
+            for i in range(npoly):
+                x1, x0 = poly[(i + 1) % npoly], poly[i]
+                flag_1, flag_0 = flag_face[(i + 1) % npoly], flag_face[i]
+                flag_c = flag_1 & flag_0
+                _dxy = x1 - x0
+                dh = _dxy[i_face]
+
+                # identify the vertex which should be removed,
+                # the flag test is used to keep the vertex located exactly on cube face
+                if (x0[i_face] < x_min and flag_0 & flag_min != flag_min) \
+                        or (x0[i_face] > x_max and flag_0 & flag_max != flag_max):
+                    rm_ind.append(1)
+                else:
+                    rm_ind.append(0)
+
+                # compute the intersection point between the edge and cube face
+                if dh != 0.:
+                    t1 = (x_min - x0[i_face]) / dh
+                    t2 = (x_max - x0[i_face]) / dh
+
+                    flag1, flag2 = flag_min, flag_max
+
+                    if t1 > t2:
+                        t1, t2 = t2, t1
+                        flag1, flag2 = flag2, flag1
+
+                    if 0. < t1 < 1.:
+                        _xy_i = x0 + t1 * _dxy
+                        x_ins.append(_xy_i)
+                        i_ins.append(i)
+                        flag_ins.append(flag_c | flag1)
+
+                    if 0. < t2 < 1.:
+                        _xy_i = x0 + t2 * _dxy
+                        x_ins.append(_xy_i)
+                        i_ins.append(i)
+                        flag_ins.append(flag_c | flag2)
+
+            for i, _x in enumerate(x_ins):
+                # fix the coordinates error due to finite accuracy
+                if flag_ins[i] & flag_min:
+                    _x[i_face] = x_min
+                elif flag_ins[i] & flag_max:
+                    _x[i_face] = x_max
+
+                for i_fix in range(i_face + 1, 3):
+                    xx_min, xx_max = self.xrange[i_fix, 0], self.xrange[i_fix, 1]
+                    if np.fabs(_x[i_fix] - xx_min) < eps:
+                        _x[i_fix] = xx_min
+                        flag_ins[i] = flag_ins[i] | self.index_face[2 * i_fix]
+                    elif np.fabs(_x[i_fix] - xx_max) < eps:
+                        _x[i_fix] = xx_max
+                        flag_ins[i] = flag_ins[i] | self.index_face[2 * i_fix + 1]
+
+                ind = i_ins[i] + i + 1
+                poly.insert(ind, _x)
+                flag_face.insert(ind, flag_ins[i])
+                rm_ind.insert(ind, 0)
+
+            i_rm = []
+            for i, _ind in enumerate(rm_ind):
+                if _ind == 1:
+                    i_rm.append(i)
+
+            for i, _irm in enumerate(i_rm):
+                ind = _irm - i
+                poly.pop(ind)
+                flag_face.pop(ind)
+
+            self.polys_cut.append(np.array(poly))
+            self.flag_cut.append(np.array(flag_face))
+
+            # Stop cutting when there are less than three vertices
+            if len(poly) <= 2:
+                if len(poly) > 0 and verbose:
+                    print("Degenerated polygon after the cutting in direction: {:d} ".format(i_face))
+                    print("Original triangle:", self.pv)
+                    print("Final shape after cutting:", np.array(poly))
+                break
+        return np.array(poly), np.array(flag_face)
+
+    def plot_cut_procedure(self, ax, verbose=False):
+        fmts = ['r', 'b', 'g', 'tab:orange']
+
+        print("\n--- Plotting the cutting procedure ---")
+        if verbose:
+            print("The polygons generated after the cutting in each direction:")
+            for _i, _pv in enumerate(self.polys_cut):
+                flag_face = self.flag_cut[_i]
+                print("Step {:d}".format(_i), "Polygon:")
+                for _iv, _xv in enumerate(_pv):
+                    print("p{:d}: {:.16e} {:.16e} {:.16e}".format(_iv, _xv[0], _xv[1], _xv[2]))
+                face_bi = ["{:06b}".format(i) for i in flag_face]
+                print("face_index：", flag_face, face_bi)
+
+        for _i, _pv in enumerate(self.polys_cut):
+            if len(_pv) > 0:
+                if _i == 0:
+                    Polygon(_pv).plot_polygen(ax[_i], facecolors=[1, 0, 0., 0.], edgecolors=fmts[_i], linewidth=3)
+                else:
+                    _pvm = self.polys_cut[_i - 1]
+                    Polygon(_pv).plot_polygen(ax[_i], facecolors=[0, 0, 0., 0.],
+                                              edgecolors=fmts[_i], linewidth=2, linestyle='-')
+                    Polygon(_pvm).plot_polygen(ax[_i], facecolors=[0, 0, 0., 0.],
+                                               edgecolors=fmts[_i - 1], linewidth=3, linestyle='--')
+        print("--- End plotting the cutting procedure ---\n")
+
+    def cut_plane(self, m):
+        swap = False
+        _m = np.array(m)[:3]
+        _alpha_max = np.sum(_m)
+
+        _m /= _alpha_max
+        _alpha = m[3] / _alpha_max
+
+        if _alpha > 1. or _alpha < 0.:
+            return 0.
+        if _alpha > 0.5:
+            swap = True
+            _alpha = 1. - _alpha
+
+        _m = np.sort(_m)
+        _v1 = _m[0]**2 / np.max([6. * _m[1] * _m[2], 1.e-32])
+        _m12 = _m[0] + _m[1]
+        _mm = np.min([_m[2], _m12])
+        _coef_m = 6. * np.prod(_m)
+
+        if 0. <= _alpha < _m[0]:
+            vol = _alpha**3 / _coef_m
+        elif _m[0] <= _alpha < _m[1]:
+            vol = _alpha * (_alpha - _m[0]) / (2. * _m[1] * _m[2]) + _v1
+        elif _m[2] < _m12:
+            _coef_n = _alpha**2 * (3. - 2. * _alpha) + np.sum(_m**2 * (_m - 3. * _alpha))
+            vol = _coef_n / _coef_m
+        else:
+            vol = (2. * _alpha - _m12) / (2. * _m[2])
+
+        if swap:
+            vol = 1. - vol
+        # print(vol, swap, _alpha)
+        return vol
+
+    def plot_cube(self, ax):
+        xy = [[0., 0., 0.], [1., 0., 0.],
+              [0., 1., 0.], [1., 1., 0.],
+              [0., 1., 1.], [1., 1., 1.],
+              [0., 0., 1.], [1., 0., 1.]]
+        xy = np.array(xy) + self.xo
+        for idir in range(3):
+            ix = idir % 3
+            iy = (idir + 1) % 3
+            iz = (idir + 2) % 3
+            _x = xy[:, ix] * self.dx[0]
+            _y = xy[:, iy] * self.dx[1]
+            _z = xy[:, iz] * self.dx[2]
+            for i in range(4):
+                ii = 2 * i
+                line1, = ax.plot(_x[ii:ii + 2], _y[ii:ii + 2], _z[ii:ii + 2], 'k-', markersize=2,
+                                 fillstyle='none', alpha=0.7, linewidth=1)
+
+    def poly2vof(self, polys, flags):
+        """ Return the volume fraction in the cube cell cut by polygons.
+        Make sure that the polygons and the cube form a closed region.
+        When computing the normal by following the right-hand side rule,
+        the normal points out from the reference phase. """
+        vol = np.zeros(3)
+        area = np.zeros(3)
+        length = np.zeros(3)
+        _flags_dir = [self.index_face[2 * i + 1] for i in range(3)]
+
+        for _ip, _poly in enumerate(polys):
+            _flag = flags[_ip]
+            coef_n = np.ones(3)
+            py1 = Polygon(_poly)
+            _nv = _poly.shape[0]
+
+            if py1.area < 1.e-16:
+                continue
+
+            for i_dir in range(3):
+                _flag_face = _flags_dir[i_dir]
+                for _iv in range(_nv):
+                    _flag_face = (_flag_face & _flag[_iv])
+                    if _flag_face != _flags_dir[i_dir]:
+                        break
+                if _flag_face == _flags_dir[i_dir]:
+                    coef_n[i_dir] = 0.
+
+            vol += py1.xcen * py1.area * py1.dn * coef_n
+            for _iv, _x in enumerate(_poly):
+                _iv1 = (_iv + 1) % _nv
+                _x2, _x1 = _poly[_iv1], _poly[_iv]
+                _flag2, _flag1 = _flag[_iv1], _flag[_iv]
+                _dx = _poly[_iv1] - _poly[_iv]
+                _ds = norm(_dx)
+                for i_dir in range(3):
+                    _flag_dir = self.index_face[2 * i_dir + 1]
+                    i_dir_1 = (i_dir + 1) % 3
+                    i_dir_2 = (i_dir + 2) % 3
+                    # do not take into account the element located exactly on the cell surface
+                    if coef_n[i_dir] == 0.:
+                        continue
+                    _dn = np.zeros(3)
+                    _dn[i_dir] = 1.
+                    if _flag1 & _flag2 & _flags_dir[i_dir]:
+                        # edge located on the cell face
+                        _dn_e = np.copy(py1.dn)
+                        _dn_e[i_dir] = 0.
+                        _dn_e /= norm(_dn_e)
+                        area[i_dir] += 0.5 * _ds * _dn_e[i_dir_2] * (_x2 + _x1)[i_dir_2]
+                        _flag_edge = _flags_dir[i_dir] | _flags_dir[i_dir_2]
+
+                        if _flag1 & _flag2 & _flag_edge != _flag_edge:
+                            # vertex located on the cell edge
+                            if _flag2 & _flags_dir[i_dir_2]:
+                                _xz = _x2[i_dir_1]
+                            elif _flag1 & _flags_dir[i_dir_2]:
+                                _xz = _x1[i_dir_1]
+                            else:
+                                _xz = 0.
+                            length[i_dir] += _xz * np.sign(_dn_e[i_dir_1])
+        # print(vol, area, length)
+
+        length[np.fabs(length) < 1.e-12] = 0.
+        _msk = length < 0.
+        length[_msk] = 1. + length[_msk]
+
+        area[np.fabs(area) < 1.e-12] = 0.
+        area += length
+        _msk = area < 0.
+        area[_msk] = 1. + area[_msk]
+
+        vol[np.fabs(vol) < 1.e-12] = 0.
+        vol += area
+        _msk = vol < 0.
+        vol[_msk] = 1. + vol[_msk]
+        return vol
+
+    def front2vof(self, points, triangles):
+        """ Identify the triangles cut by the cube,
+        and compute the polygons formed by cutting. """
+        self.triangles_inside = []
+        self.polygons_inside = []
+        self.flag_inside = []
+
+        _p_tri = points[triangles[0], :]
+        dn = Polygon(_p_tri).dn
+        dx = np.array([1., 0., 0.])
+
+        xy = [[0., 0., 0.], [1., 0., 0.],
+              [0., 1., 0.], [1., 1., 0.],
+              [0., 1., 1.], [1., 1., 1.],
+              [0., 0., 1.], [1., 0., 1.]]
+        xy = np.array(xy) * self.dx + self.xo
+        for _xv in xy:
+            dx = _p_tri[0] - _xv
+            dx /= (norm(dx) + 1.e-32)
+            if abs(dn.dot(dx)) > 1.e-6:
+                break
+        phase_sign = np.sign(dn.dot(dx))
+
+        for ivs in triangles:
+            _p_tri = points[ivs, :]
+            _poly, _flag = self.cut_triangle(_p_tri)
+            if _poly.shape[0] > 2:
+                self.triangles_inside.append(_p_tri)
+                self.polygons_inside.append(_poly)
+                self.flag_inside.append(_flag)
+
+        vol = self.poly2vof(self.polygons_inside, self.flag_inside)
+        if np.min(np.abs(vol)) < 1.e-12:
+            # For corner cases
+            vol = np.array([1., 1., 1.] if phase_sign > 0. else [0., 0., 0.])
+        return vol
+
+    def get_points_on_face(self, ind_face):
+        xyz = []
+        flag_face = self.index_face[ind_face]
+        for ip, pv in enumerate(self.polygons_inside):
+            for iv in range(pv.shape[0]):
+                if self.flag_inside[ip][iv] & flag_face:
+                    xyz.append(pv[iv])
+
+        return np.array(xyz)
