@@ -32,7 +32,7 @@ if __name__ == '__main__':
     vol_ana = cub.cut_plane(m)
     print(cub.front2vof(p_tri, [[0, 1, 2]]), vol_ana)
 
-    poly_cut, flag_cut = cub.cut_triangle(p_tri)
+    poly_cut, flag_cut = cub.clip3d(p_tri)
     figs = []
     axs = []
     for i in range(4):
@@ -156,10 +156,10 @@ if __name__ == '__main__':
                   facecolors=colors_def[0] + [alpha], edgecolors=colors_def[-1] + [alpha])
 
     # plot_polygen(p_tri_1, ax, fmt='r-')
-    # poly_cut, flag_cut = cub.cut_triangle(p_tri_1)
+    # poly_cut, flag_cut = cub.clip3d(p_tri_1)
     # cub.plot_cut_procedure(ax)
     # plot_polygen(p_tri_2, ax, fmt='r-')
-    # poly_cut, flag_cut = cub.cut_triangle(p_tri_2)
+    # poly_cut, flag_cut = cub.clip3d(p_tri_2)
     # cub.plot_cut_procedure(ax)
 
     vol_plane = []

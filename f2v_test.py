@@ -1,35 +1,9 @@
 import numpy as np
-from numpy import pi
 import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import axes3d
-from fig_format import fig_fontsizes
-from fronttovof import Cube, plot_polygons, set_axis_transparent, add_axis
 import matplotlib.tri as mtri
-
-
-def get_sphere(xo=(0., 0., 0.), r=1., dl=0.1, equal_phi=False):
-    ntheta = int(pi * r / dl) + 1
-    theta = np.linspace(0., pi, ntheta)
-    xyz = np.array([[0., 0., 1.], [0., 0., -1.]])
-    u = np.array([0., 1.])
-    v = np.array([1., 1.])
-    for _th in theta[1:-1]:
-        sth = np.sin(_th)
-        cth = np.cos(_th)
-        if equal_phi:
-            nphi = 2 * (ntheta - 1) + 1
-        else:
-            rt = r * np.sin(_th)
-            nphi = max(int(2. * pi * rt / dl), 4) + 1
-        phi = np.linspace(0., 2. * pi, nphi)
-        _m = np.ones_like(phi)
-        _xyz = np.vstack([sth * np.cos(phi), sth * np.sin(phi), cth * _m]).T
-        xyz = np.vstack([xyz, _xyz])
-
-        u = np.hstack([u, _m * _th / pi])
-        v = np.hstack([v, phi / pi])
-    xyz = r * xyz + np.array(xo)
-    return xyz, u, v
+from fig_format import fig_fontsizes
+from fronttovof import Cube, plot_polygons, set_axis_transparent, add_axis, get_sphere
 
 
 if __name__ == '__main__':

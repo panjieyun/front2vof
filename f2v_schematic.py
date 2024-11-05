@@ -6,8 +6,7 @@ from matplotlib.patches import Polygon, Rectangle
 import matplotlib.tri as mtri
 from mpl_toolkits.mplot3d import axes3d
 from fig_format import fig_fontsizes
-from fronttovof import Cube, set_axis_transparent, plot_polygons, add_axis
-from f2v_test import get_sphere
+from fronttovof import Cube, set_axis_transparent, plot_polygons, add_axis, get_sphere
 
 
 if __name__ == '__main__':
@@ -16,7 +15,7 @@ if __name__ == '__main__':
     fontsize_text = fig_fontsizes["text"]
 
     cub = Cube()
-    savefigs = True
+    savefigs = not True
 
     r = 1.
     dl = 0.25

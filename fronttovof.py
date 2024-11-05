@@ -1,11 +1,13 @@
 import numpy as np
+from numpy import pi
 from numpy.linalg import norm
 from mpl_toolkits.mplot3d.art3d import Poly3DCollection
 
 
 #  for plotting purpose
 def set_axis_transparent(ax):
-    # make the panes transparent
+    """ Make the background of a 3D figure transparent. """
+    # make the planes transparent
     ax.xaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
     ax.yaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
     ax.zaxis.set_pane_color((1.0, 1.0, 1.0, 0.0))
@@ -17,6 +19,7 @@ def set_axis_transparent(ax):
 
 
 def add_axis(ax, xo=(0., 0., 0.), dx=(1.2, 1.2, 1.2), **kwargs):
+    """ Add three arrows to indicate the coordinate system. """
     _x = np.zeros(3) + xo[0]
     _y = np.zeros(3) + xo[1]
     _z = np.zeros(3) + xo[2]
@@ -34,6 +37,12 @@ def add_axis(ax, xo=(0., 0., 0.), dx=(1.2, 1.2, 1.2), **kwargs):
         ax.text(_xt[0], _xt[1], _xt[2], texts[i], fontsize=14)
 
 
+def plot_polygons(ax, polygons, **kwargs):
+    poly3d = Poly3DCollection(polygons, **kwargs)
+    ax.add_collection3d(poly3d)
+
+
+# Generate different basic geometries for testing the F2V
 def get_plane(pv):
     """ Get the equation of plane on which a polygon is located:
     m[0]*x + m[1]*y + m[2]*z = m[3]. """
@@ -68,9 +77,30 @@ def get_triangle(xo=(0., 0., 0.), n=(0., 0., 1.), l=2.):
     return _tri_n
 
 
-def plot_polygons(ax, polygons, **kwargs):
-    poly3d = Poly3DCollection(polygons, **kwargs)
-    ax.add_collection3d(poly3d)
+def get_sphere(xo=(0., 0., 0.), r=1., dl=0.1, equal_phi=False):
+    """ Generate vertices on a spherical surface. """
+    ntheta = int(pi * r / dl) + 1
+    theta = np.linspace(0., pi, ntheta)
+    xyz = np.array([[0., 0., 1.], [0., 0., -1.]])
+    u = np.array([0., 1.])
+    v = np.array([1., 1.])
+    for _th in theta[1:-1]:
+        sth = np.sin(_th)
+        cth = np.cos(_th)
+        if equal_phi:
+            nphi = 2 * (ntheta - 1) + 1
+        else:
+            rt = r * np.sin(_th)
+            nphi = max(int(2. * pi * rt / dl), 4) + 1
+        phi = np.linspace(0., 2. * pi, nphi)
+        _m = np.ones_like(phi)
+        _xyz = np.vstack([sth * np.cos(phi), sth * np.sin(phi), cth * _m]).T
+        xyz = np.vstack([xyz, _xyz])
+
+        u = np.hstack([u, _m * _th / pi])
+        v = np.hstack([v, phi / pi])
+    xyz = r * xyz + np.array(xo)
+    return xyz, u, v
 
 
 class Polygon():
@@ -90,7 +120,7 @@ class Polygon():
             xcen.append((_pv[i] + _pv[ip] + _xc) / 3.)
             _dn = np.cross(_pv[i] - _xc, _pv[ip] - _xc)
             _a = np.linalg.norm(_dn)
-            area.append(0.5 * _a)
+            area.append(0.5 * abs(_a))
             if _a > a_max:
                 a_max = _a
                 self.dn = _dn / _a
@@ -113,18 +143,29 @@ class Polygon():
 
 class Cube():
     def __init__(self, dx=(1., 1., 1.), xo=(0., 0., 0.)):
+        """ Cuboid with size lengths dx, one vertex at xo"""
         self.dx = np.array(dx)
         self.xo = np.array(xo)
-        self.pv = None
         self.xrange = (np.vstack([[0., 0., 0.], self.dx]) + self.xo).T
-        self.polys_cut = []
-        self.flag_cut = []
-        self.triangles_inside = []
-        self.polygons_inside = []
-        self.flag_inside = []
-        self.index_face = [1 << i for i in range(6)]
+        # eight cuboid vertices
+        _xv = [[0., 0., 0.], [1., 0., 0.],
+               [0., 1., 0.], [1., 1., 0.],
+               [0., 1., 1.], [1., 1., 1.],
+               [0., 0., 1.], [1., 0., 1.]]
+        self.xv = np.array(_xv) * self.dx + self.xo
 
-    def cut_triangle(self, pv, verbose=False):
+        self.pv = None  # final polygon after clipping algorithm
+        self.polys_cut = []  # polygons obtained after the clipping of each direction
+        self.flag_cut = []  # flag of polygon vertex after each clipping
+        self.triangles_inside = []  # triangles within cube or with intersection with cube
+        self.polygons_inside = []   # the corresponding polygons
+        self.flag_inside = []
+        self.index_face = [1 << i for i in range(6)]    # flag of each cube face
+
+    def clip3d(self, pv, verbose=False):
+        """ Clipping function: for an input triangle pv, return the polygon part within
+        the cuboid. """
+
         eps = 1.e-12
         self.pv = np.array(pv)
         poly = [self.pv[0], self.pv[1], self.pv[2]]
@@ -134,7 +175,7 @@ class Cube():
 
         # identify the vertex of the original triangle located on the cube surface
         for _poly in poly:
-            _flag = 0 # 0 for vertex inside the cube
+            _flag = 0   # 0 for vertex inside the cube
             for i_face in range(3):
                 x_min, x_max = self.xrange[i_face, 0], self.xrange[i_face, 1]
                 if np.fabs(_poly[i_face] - x_min) < eps:
@@ -147,13 +188,13 @@ class Cube():
         self.flag_cut = []
         self.flag_cut.append(np.array(flag_face))
 
-        # cut the triangle
+        # clip the triangle sequentially
         for i_face in range(3):
             npoly = len(poly)
             x_min, x_max = self.xrange[i_face, 0], self.xrange[i_face, 1]
             flag_min, flag_max = self.index_face[2 * i_face], self.index_face[2 * i_face + 1]
 
-            # store the information of points which should be add the polygon
+            # store the information of points which should be added to or removed from the polygon
             i_ins = []
             x_ins = []
             flag_ins = []
@@ -178,32 +219,25 @@ class Cube():
                     t1 = (x_min - x0[i_face]) / dh
                     t2 = (x_max - x0[i_face]) / dh
 
-                    flag1, flag2 = flag_min, flag_max
-
+                    # two intersection points should be inserted in ascending order of t
                     if t1 > t2:
                         t1, t2 = t2, t1
-                        flag1, flag2 = flag2, flag1
 
                     if 0. < t1 < 1.:
                         _xy_i = x0 + t1 * _dxy
                         x_ins.append(_xy_i)
                         i_ins.append(i)
-                        flag_ins.append(flag_c | flag1)
+                        flag_ins.append(flag_c)
 
                     if 0. < t2 < 1.:
                         _xy_i = x0 + t2 * _dxy
                         x_ins.append(_xy_i)
                         i_ins.append(i)
-                        flag_ins.append(flag_c | flag2)
+                        flag_ins.append(flag_c)
 
             for i, _x in enumerate(x_ins):
                 # fix the coordinates error due to finite accuracy
-                if flag_ins[i] & flag_min:
-                    _x[i_face] = x_min
-                elif flag_ins[i] & flag_max:
-                    _x[i_face] = x_max
-
-                for i_fix in range(i_face + 1, 3):
+                for i_fix in range(3):
                     xx_min, xx_max = self.xrange[i_fix, 0], self.xrange[i_fix, 1]
                     if np.fabs(_x[i_fix] - xx_min) < eps:
                         _x[i_fix] = xx_min
@@ -217,6 +251,7 @@ class Cube():
                 flag_face.insert(ind, flag_ins[i])
                 rm_ind.insert(ind, 0)
 
+            # remove the vertices outside the cube
             i_rm = []
             for i, _ind in enumerate(rm_ind):
                 if _ind == 1:
@@ -240,6 +275,7 @@ class Cube():
         return np.array(poly), np.array(flag_face)
 
     def plot_cut_procedure(self, ax, verbose=False):
+        """ plot the polygon obtained after each clipping. """
         fmts = ['r', 'b', 'g', 'tab:orange']
 
         print("\n--- Plotting the cutting procedure ---")
@@ -315,14 +351,16 @@ class Cube():
             _z = xy[:, iz] * self.dx[2]
             for i in range(4):
                 ii = 2 * i
-                line1, = ax.plot(_x[ii:ii + 2], _y[ii:ii + 2], _z[ii:ii + 2], 'k-', markersize=2,
-                                 fillstyle='none', alpha=0.7, linewidth=1)
+                ax.plot(_x[ii:ii + 2], _y[ii:ii + 2], _z[ii:ii + 2], 'k-', markersize=2,
+                        fillstyle='none', alpha=0.7, linewidth=1)
 
     def poly2vof(self, polys, flags):
         """ Return the volume fraction in the cube cell cut by polygons.
         Make sure that the polygons and the cube form a closed region.
         When computing the normal by following the right-hand side rule,
-        the normal points out from the reference phase. """
+        the normal points out from the reference phase.
+        The three elements of vol represents the cases with
+        F = (x, 0, 0), (0, y, 0) and (0, 0, z), respectively."""
         vol = np.zeros(3)
         area = np.zeros(3)
         length = np.zeros(3)
@@ -398,39 +436,48 @@ class Cube():
 
     def front2vof(self, points, triangles):
         """ Identify the triangles cut by the cube,
-        and compute the polygons formed by cutting. """
+        and compute the polygons obtained using the clipping algorithm.
+        Main function of the F2V algorithm. """
         self.triangles_inside = []
         self.polygons_inside = []
         self.flag_inside = []
 
-        _p_tri = points[triangles[0], :]
-        dn = Polygon(_p_tri).dn
-        dx = np.array([1., 0., 0.])
-
-        xy = [[0., 0., 0.], [1., 0., 0.],
-              [0., 1., 0.], [1., 1., 0.],
-              [0., 1., 1.], [1., 1., 1.],
-              [0., 0., 1.], [1., 0., 1.]]
-        xy = np.array(xy) * self.dx + self.xo
-        for _xv in xy:
-            dx = _p_tri[0] - _xv
-            dx /= (norm(dx) + 1.e-32)
-            if abs(dn.dot(dx)) > 1.e-6:
-                break
-        phase_sign = np.sign(dn.dot(dx))
-
-        for ivs in triangles:
-            _p_tri = points[ivs, :]
-            _poly, _flag = self.cut_triangle(_p_tri)
+        for _ivs in triangles:
+            _p_tri = points[_ivs, :]
+            _poly, _flag = self.clip3d(_p_tri)
             if _poly.shape[0] > 2:
                 self.triangles_inside.append(_p_tri)
                 self.polygons_inside.append(_poly)
                 self.flag_inside.append(_flag)
 
         vol = self.poly2vof(self.polygons_inside, self.flag_inside)
+
         if np.min(np.abs(vol)) < 1.e-12:
-            # For corner cases
+            # For corner cases, empty or full cell
+            xc = 0.5 * self.dx + self.xo  # cuboid center
+
+            d_min = 1.e32
+            xc_min = np.zeros(3)
+            dn_min = np.ones(3)
+            # search the triangle closest to the cuboid center
+            for _ivs in triangles:
+                _p_tri = points[_ivs, :]
+                _poly = Polygon(_p_tri)
+                _d = np.fabs(_poly.dn.dot(_poly.xcen - xc))
+                if _d < d_min:
+                    xc_min = _poly.xcen
+                    dn_min = _poly.dn
+                    d_min = _d
+
+            # search the cuboid vertex not on the element plane
+            for _xv in self.xv:
+                dx = xc_min - _xv
+                dx /= (norm(dx) + 1.e-32)
+                if abs(dn_min.dot(dx)) > 1.e-6:
+                    break
+            phase_sign = np.sign(dn_min.dot(dx))
             vol = np.array([1., 1., 1.] if phase_sign > 0. else [0., 0., 0.])
+
         return vol
 
     def get_points_on_face(self, ind_face):
