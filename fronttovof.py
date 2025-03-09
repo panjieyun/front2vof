@@ -325,6 +325,9 @@ class Cube():
             vol = _alpha**3 / _coef_m
         elif _m[0] <= _alpha < _m[1]:
             vol = _alpha * (_alpha - _m[0]) / (2. * _m[1] * _m[2]) + _v1
+        elif _m[1] <= _alpha < _mm:
+            _coef_n = _alpha**2 * (3. * _m12 - _alpha) + np.sum(_m[:-1]**2 * (_m[:-1] - 3. * _alpha))
+            vol = _coef_n / _coef_m
         elif _m[2] < _m12:
             _coef_n = _alpha**2 * (3. - 2. * _alpha) + np.sum(_m**2 * (_m - 3. * _alpha))
             vol = _coef_n / _coef_m
