@@ -304,13 +304,18 @@ class Cube():
     def cut_plane(self, m):
         swap = False
         _m = np.array(m)[:3]
+        _alpha = m[3] + np.sum(np.maximum(0., -_m))
+        _m = np.abs(_m)
         _alpha_max = np.sum(_m)
 
         _m /= _alpha_max
-        _alpha = m[3] / _alpha_max
+        _alpha /= _alpha_max
 
-        if _alpha > 1. or _alpha < 0.:
+        if _alpha > 1. - 1.e-12:
+            return 1.
+        elif _alpha < 1.e-12:
             return 0.
+
         if _alpha > 0.5:
             swap = True
             _alpha = 1. - _alpha
@@ -323,9 +328,9 @@ class Cube():
 
         if 0. <= _alpha < _m[0]:
             vol = _alpha**3 / _coef_m
-        elif _m[0] <= _alpha < _m[1]:
+        elif _alpha < _m[1]:
             vol = _alpha * (_alpha - _m[0]) / (2. * _m[1] * _m[2]) + _v1
-        elif _m[1] <= _alpha < _mm:
+        elif _alpha < _mm:
             _coef_n = _alpha**2 * (3. * _m12 - _alpha) + np.sum(_m[:-1]**2 * (_m[:-1] - 3. * _alpha))
             vol = _coef_n / _coef_m
         elif _m[2] < _m12:
