@@ -480,7 +480,6 @@ class Cube():
             # search the cuboid vertex not on the element plane
             for _xv in self.xv:
                 dx = xc_min - _xv
-                dx /= (norm(dx) + 1.e-32)
                 if abs(dn_min.dot(dx)) > 1.e-6:
                     break
             phase_sign = np.sign(dn_min.dot(dx))
