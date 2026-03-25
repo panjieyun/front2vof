@@ -344,23 +344,23 @@ class Cube():
         # print(vol, swap, _alpha)
         return vol
 
-    def plot_cube(self, ax):
+    def plot_cube(self, ax, **kwargs):
         xy = [[0., 0., 0.], [1., 0., 0.],
               [0., 1., 0.], [1., 1., 0.],
               [0., 1., 1.], [1., 1., 1.],
               [0., 0., 1.], [1., 0., 1.]]
-        xy = np.array(xy) + self.xo
+        xy = np.array(xy)
         for idir in range(3):
+            # idir: 0, 1, 2 corresponds to four edges along x-, z-, y-direction
             ix = idir % 3
             iy = (idir + 1) % 3
             iz = (idir + 2) % 3
-            _x = xy[:, ix] * self.dx[0]
-            _y = xy[:, iy] * self.dx[1]
-            _z = xy[:, iz] * self.dx[2]
+            _x = xy[:, ix] * self.dx[0] + self.xo[0]
+            _y = xy[:, iy] * self.dx[1] + self.xo[1]
+            _z = xy[:, iz] * self.dx[2] + self.xo[2]
             for i in range(4):
                 ii = 2 * i
-                ax.plot(_x[ii:ii + 2], _y[ii:ii + 2], _z[ii:ii + 2], 'k-', markersize=2,
-                        fillstyle='none', alpha=0.7, linewidth=1)
+                ax.plot(_x[ii:ii + 2], _y[ii:ii + 2], _z[ii:ii + 2], **kwargs)
 
     def poly2vof(self, polys, flags):
         """ Return the volume fraction in the cube cell cut by polygons.
@@ -377,6 +377,7 @@ class Cube():
         for _ip, _poly in enumerate(polys):
             _flag = flags[_ip]
             coef_n = np.ones(3)
+            _poly = (_poly - self.xo) / self.dx
             py1 = Polygon(_poly)
             _nv = _poly.shape[0]
 
@@ -413,11 +414,11 @@ class Cube():
                         _dn_e = np.copy(py1.dn)
                         _dn_e[i_dir] = 0.
                         _dn_e /= norm(_dn_e)
-                        area[i_dir] += 0.5 * _ds * _dn_e[i_dir_2] * (_x2 + _x1)[i_dir_2]
                         _flag_edge = _flags_dir[i_dir] | _flags_dir[i_dir_2]
 
                         if _flag1 & _flag2 & _flag_edge != _flag_edge:
                             # vertex located on the cell edge
+                            area[i_dir] += 0.5 * _ds * _dn_e[i_dir_2] * (_x2 + _x1)[i_dir_2]
                             if _flag2 & _flags_dir[i_dir_2]:
                                 _xz = _x2[i_dir_1]
                             elif _flag1 & _flags_dir[i_dir_2]:
@@ -471,19 +472,16 @@ class Cube():
             for _ivs in triangles:
                 _p_tri = points[_ivs, :]
                 _poly = Polygon(_p_tri)
-                _d = np.fabs(_poly.dn.dot(_poly.xcen - xc))
+                _d = np.linalg.norm(_poly.xcen - xc)
                 if _d < d_min:
                     xc_min = _poly.xcen
                     dn_min = _poly.dn
                     d_min = _d
 
-            # search the cuboid vertex not on the element plane
-            for _xv in self.xv:
-                dx = xc_min - _xv
-                if abs(dn_min.dot(dx)) > 1.e-6:
-                    break
-            phase_sign = np.sign(dn_min.dot(dx))
+            phase_sign = np.sign(dn_min.dot(xc_min - xc))
             vol = np.array([1., 1., 1.] if phase_sign > 0. else [0., 0., 0.])
+
+        vol *= np.prod(self.dx)
 
         return vol
 
